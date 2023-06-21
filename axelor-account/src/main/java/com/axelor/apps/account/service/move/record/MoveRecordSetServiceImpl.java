@@ -37,8 +37,6 @@ import com.axelor.apps.base.db.repo.PartnerRepository;
 import com.axelor.apps.base.db.repo.YearRepository;
 import com.axelor.apps.base.service.BankDetailsService;
 import com.axelor.apps.base.service.PeriodService;
-import com.axelor.common.ObjectUtils;
-import com.axelor.common.StringUtils;
 import com.google.inject.Inject;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -173,26 +171,28 @@ public class MoveRecordSetServiceImpl implements MoveRecordSetService {
 
   @Override
   public void setFunctionalOriginSelect(Move move) {
-    if (ObjectUtils.notEmpty(move.getJournal())
-        && StringUtils.notEmpty(move.getJournal().getAuthorizedFunctionalOriginSelect())) {
-      String authorizedFunctionalOriginSelect =
-          move.getJournal().getAuthorizedFunctionalOriginSelect();
+    if (move.getJournal() == null
+        || move.getJournal().getAuthorizedFunctionalOriginSelect() == null) {
+      return;
+    }
 
-      if (authorizedFunctionalOriginSelect.split(",").length == 1) {
-        move.setFunctionalOriginSelect(Integer.valueOf(authorizedFunctionalOriginSelect));
+    String authorizedFunctionalOriginSelect =
+        move.getJournal().getAuthorizedFunctionalOriginSelect();
+
+    if (authorizedFunctionalOriginSelect.split(",").length == 1) {
+      move.setFunctionalOriginSelect(Integer.valueOf(authorizedFunctionalOriginSelect));
+    } else {
+      if (move.getMassEntryStatusSelect() != MoveRepository.MASS_ENTRY_STATUS_NULL
+          && Arrays.stream(move.getJournal().getAuthorizedFunctionalOriginSelect().split(","))
+              .findFirst()
+              .isPresent()) {
+        move.setFunctionalOriginSelect(
+            Integer.valueOf(
+                Arrays.stream(move.getJournal().getAuthorizedFunctionalOriginSelect().split(","))
+                    .findFirst()
+                    .get()));
       } else {
-        if (move.getMassEntryStatusSelect() != MoveRepository.MASS_ENTRY_STATUS_NULL
-            && Arrays.stream(move.getJournal().getAuthorizedFunctionalOriginSelect().split(","))
-                .findFirst()
-                .isPresent()) {
-          move.setFunctionalOriginSelect(
-              Integer.valueOf(
-                  Arrays.stream(move.getJournal().getAuthorizedFunctionalOriginSelect().split(","))
-                      .findFirst()
-                      .get()));
-        } else {
-          move.setFunctionalOriginSelect(null);
-        }
+        move.setFunctionalOriginSelect(null);
       }
     }
   }
