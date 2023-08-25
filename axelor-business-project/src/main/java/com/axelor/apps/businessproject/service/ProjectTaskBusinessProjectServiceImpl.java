@@ -43,10 +43,8 @@ import com.axelor.apps.businessproject.service.app.AppBusinessProjectService;
 import com.axelor.apps.hr.db.TimesheetLine;
 import com.axelor.apps.hr.db.repo.EmployeeRepository;
 import com.axelor.apps.hr.db.repo.TimesheetLineRepository;
-import com.axelor.apps.hr.db.repo.TimesheetRepository;
 import com.axelor.apps.hr.exception.HumanResourceExceptionMessage;
 import com.axelor.apps.project.db.Project;
-import com.axelor.apps.project.db.ProjectPlanningTime;
 import com.axelor.apps.project.db.ProjectTask;
 import com.axelor.apps.project.db.ProjectTaskCategory;
 import com.axelor.apps.project.db.TaskStatus;
@@ -153,7 +151,6 @@ public class ProjectTaskBusinessProjectServiceImpl extends ProjectTaskServiceImp
     BigDecimal plannedHrs = template.getTotalPlannedHrs();
     if (template.getIsUniqueTaskForMultipleQuantity() && qty.compareTo(BigDecimal.ONE) > 0) {
       plannedHrs = plannedHrs.multiply(qty);
-      task.setName(task.getName() + " x" + qty.intValue());
     }
     task.setTotalPlannedHrs(plannedHrs);
 
@@ -163,6 +160,8 @@ public class ProjectTaskBusinessProjectServiceImpl extends ProjectTaskServiceImp
   @Override
   public ProjectTask create(String subject, Project project, User assignedTo) {
     ProjectTask task = super.create(subject, project, assignedTo);
+    task.setProjectTaskList(new ArrayList<>());
+    task.setProjectPlanningTimeList(new ArrayList<>());
     task.setTaskDate(appBaseService.getTodayDate(project.getCompany()));
     return task;
   }
@@ -472,49 +471,6 @@ public class ProjectTaskBusinessProjectServiceImpl extends ProjectTaskServiceImp
     }
     projectTask = updateTaskFinancialInfo(projectTask);
     return projectTaskRepo.save(projectTask);
-  }
-
-  @Override
-  @Transactional(rollbackOn = {Exception.class})
-  public void computeProjectTaskTotals(ProjectTask projectTask) throws AxelorException {
-
-    BigDecimal plannedTime;
-    BigDecimal spentTime = BigDecimal.ZERO;
-
-    Unit timeUnit = projectTask.getTimeUnit();
-
-    plannedTime =
-        projectTask.getProjectPlanningTimeList().stream()
-            .map(ProjectPlanningTime::getPlannedTime)
-            .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-    List<TimesheetLine> timeSheetLines =
-        timesheetLineRepository
-            .all()
-            .filter("self.timesheet.statusSelect = :status AND self.projectTask = :projectTask")
-            .bind("status", TimesheetRepository.STATUS_VALIDATED)
-            .bind("projectTask", projectTask)
-            .fetch();
-
-    for (TimesheetLine timeSheetLine : timeSheetLines) {
-      spentTime =
-          spentTime.add(convertTimesheetLineDurationToProjectTaskUnit(timeSheetLine, timeUnit));
-    }
-
-    List<ProjectTask> projectTaskList = projectTask.getProjectTaskList();
-    for (ProjectTask task : projectTaskList) {
-      computeProjectTaskTotals(task);
-      plannedTime = plannedTime.add(task.getPlannedTime());
-      spentTime = spentTime.add(task.getSpentTime());
-    }
-
-    projectTask.setPlannedTime(plannedTime);
-    projectTask.setSpentTime(spentTime);
-
-    if (projectTask.getParentTask() == null) {
-      computeProjectTaskReporting(projectTask);
-    }
-    projectTaskRepo.save(projectTask);
   }
 
   protected BigDecimal convertTimesheetLineDurationToProjectTaskUnit(

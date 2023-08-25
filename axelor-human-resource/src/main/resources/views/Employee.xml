@@ -134,7 +134,8 @@
 
       <panel colSpan="12">
         <field name="weeklyPlanning" title="Weekly planning" canNew="true" colSpan="4"
-          form-view="weekly-planning-form" grid-view="weekly-planning-grid"/>
+          form-view="weekly-planning-form" grid-view="weekly-planning-grid"
+          domain="self.typeSelect = 1"/>
         <field name="publicHolidayEventsPlanning" canEdit="false" colSpan="4"
           form-view="events-planning-form" grid-view="events-planning-grid"/>
         <field name="imposedDayEventsPlanning" canEdit="false" colSpan="4"
@@ -338,7 +339,8 @@
 
           <panel colSpan="12">
             <field name="weeklyPlanning" title="Weekly planning" canNew="true" colSpan="4"
-              form-view="weekly-planning-form" grid-view="weekly-planning-grid"/>
+              form-view="weekly-planning-form" grid-view="weekly-planning-grid"
+              domain="self.typeSelect = 1"/>
             <field name="publicHolidayEventsPlanning" canEdit="false" colSpan="4"
               form-view="events-planning-form" grid-view="events-planning-grid"/>
             <field name="imposedDayEventsPlanning" canEdit="false" colSpan="4"
@@ -472,16 +474,8 @@
       </panel>
 
       <panel name="employeeFileListPanel" title="Files" colSpan="12">
-        <field name="employeeFileList" showTitle="false" colSpan="12">
-          <editor colSpan="12" x-viewer="true" x-show-on-new="true" x-layout="table">
-            <field name="fileType" colSpan="3" onChange="action-record-set-expiration-date"/>
-            <field name="metaFile" widget="binary-link" colSpan="3"
-              onChange="action-record-set-record-date"/>
-            <field name="recordDate" colSpan="3" readonly="true"/>
-            <field name="expirationDate" showIf="fileType.hasExpirationDate" colSpan="3"/>
-            <field name="fileType.hasExpirationDate" hidden="true"/>
-          </editor>
-        </field>
+        <panel-related field="employeeFileList" showTitle="false"
+          grid-view="employee-file-grid" form-view="employee-file-form" colSpan="12"/>
       </panel>
     </panel-tabs>
 
@@ -779,8 +773,13 @@
       <domain>self.leavingDate IS NULL AND self.hireDate &gt; CURRENT_DATE - 30</domain>
     </filter>
     <filter title="Active employees">
-      <domain>(self.leavingDate IS NULL OR self.leavingDate &gt; CURRENT_DATE) AND (self.hireDate IS
-        NULL OR self.hireDate &lt; CURRENT_DATE)</domain>
+      <domain>(self.hireDate IS NULL AND self.leavingDate &gt;= CURRENT_DATE)
+        OR (self.leavingDate IS
+        NULL AND (self.hireDate + 30) &lt;= CURRENT_DATE)
+        OR (self.hireDate IS NOT NULL AND
+        self.leavingDate IS NOT NULL
+        AND (self.hireDate + 30) &lt;= CURRENT_DATE AND self.leavingDate
+        &gt;= CURRENT_DATE)</domain>
     </filter>
     <filter title="Former employees">
       <domain>self.leavingDate &lt; CURRENT_DATE</domain>

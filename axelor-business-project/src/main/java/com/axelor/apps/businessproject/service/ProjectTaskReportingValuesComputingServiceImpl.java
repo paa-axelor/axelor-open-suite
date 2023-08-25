@@ -1,3 +1,21 @@
+/*
+ * Axelor Business Solutions
+ *
+ * Copyright (C) 2005-2023 Axelor (<http://axelor.com>).
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as
+ * published by the Free Software Foundation, either version 3 of the
+ * License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 package com.axelor.apps.businessproject.service;
 
 import com.axelor.apps.base.AxelorException;
@@ -90,19 +108,12 @@ public class ProjectTaskReportingValuesComputingServiceImpl
    * @throws AxelorException
    */
   protected void computeProjectTaskTimes(ProjectTask projectTask) throws AxelorException {
-    BigDecimal plannedTime;
-    BigDecimal spentTime = BigDecimal.ZERO;
+    BigDecimal spentTime = getTaskSpentTime(projectTask);
 
-    List<TimesheetLine> timesheetLines = getValidatedTimesheetLinesForProjectTask(projectTask);
-    Unit timeUnit = projectTask.getTimeUnit();
-    plannedTime =
+    BigDecimal plannedTime =
         projectTask.getProjectPlanningTimeList().stream()
             .map(ProjectPlanningTime::getPlannedTime)
             .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-    for (TimesheetLine timeSheetLine : timesheetLines) {
-      spentTime = spentTime.add(convertTimesheetLineDurationToTimeUnit(timeSheetLine, timeUnit));
-    }
 
     // compute task children
     List<ProjectTask> projectTaskList = projectTask.getProjectTaskList();
@@ -115,6 +126,24 @@ public class ProjectTaskReportingValuesComputingServiceImpl
 
     projectTask.setPlannedTime(plannedTime);
     projectTask.setSpentTime(spentTime);
+  }
+
+  /**
+   * get specific task timeSpent (without children)
+   *
+   * @param projectTask
+   * @return
+   */
+  protected BigDecimal getTaskSpentTime(ProjectTask projectTask) {
+    List<TimesheetLine> timesheetLines = getValidatedTimesheetLinesForProjectTask(projectTask);
+    Unit timeUnit = projectTask.getTimeUnit();
+    BigDecimal spentTime = BigDecimal.ZERO;
+
+    for (TimesheetLine timeSheetLine : timesheetLines) {
+      spentTime = spentTime.add(convertTimesheetLineDurationToTimeUnit(timeSheetLine, timeUnit));
+    }
+
+    return spentTime;
   }
 
   /**
@@ -144,8 +173,22 @@ public class ProjectTaskReportingValuesComputingServiceImpl
               I18n.get(BusinessProjectExceptionMessage.PROJECT_TASK_SOLD_TIME_ERROR),
               projectTask.getName()));
     }
+
+    // sale order line unit not compatible with BusinessProject configuration
+    if (saleOrderLine != null
+        && !daysUnit.equals(saleOrderLine.getUnit())
+        && !hoursUnit.equals(saleOrderLine.getUnit())) {
+      throw new AxelorException(
+          TraceBackRepository.CATEGORY_CONFIGURATION_ERROR,
+          String.format(
+              I18n.get(
+                  BusinessProjectExceptionMessage.PROJECT_TASK_PRODUCT_SALE_ORDER_LINE_UNIT_ERROR),
+              product.getName()));
+    }
+
     // stock unit not compatible with BusinessProject configuration
-    if (product != null
+    if (saleOrderLine == null
+        && product != null
         && !daysUnit.equals(product.getUnit())
         && !hoursUnit.equals(product.getUnit())) {
       throw new AxelorException(
@@ -184,9 +227,6 @@ public class ProjectTaskReportingValuesComputingServiceImpl
                   .getInitialMargin()
                   .divide(projectTask.getInitialCosts(), COMPUTATION_SCALE, RoundingMode.HALF_UP)));
     }
-    // unitCost to compute other values
-    BigDecimal unitCost = computeUnitCost(projectTask, project);
-    projectTask.setUnitCost(unitCost);
 
     // Real
     BigDecimal progress =
@@ -195,8 +235,10 @@ public class ProjectTaskReportingValuesComputingServiceImpl
             .divide(projectTask.getUpdatedTime(), RESULT_SCALE, RoundingMode.HALF_UP);
     projectTask.setRealTurnover(
         progress.multiply(projectTask.getTurnover()).setScale(RESULT_SCALE, RoundingMode.HALF_UP));
-    projectTask.setRealCosts(
-        projectTask.getSpentTime().multiply(unitCost).setScale(RESULT_SCALE, RoundingMode.HALF_UP));
+
+    BigDecimal realCosts = computeRealCosts(projectTask, project);
+
+    projectTask.setRealCosts(realCosts);
     projectTask.setRealMargin(projectTask.getRealTurnover().subtract(projectTask.getRealCosts()));
 
     BigDecimal realMarkup = BigDecimal.ZERO;
@@ -231,6 +273,23 @@ public class ProjectTaskReportingValuesComputingServiceImpl
     }
   }
 
+  protected BigDecimal computeRealCosts(ProjectTask projectTask, Project project)
+      throws AxelorException {
+    BigDecimal unitCost = computeUnitCost(projectTask, project);
+    projectTask.setUnitCost(unitCost);
+
+    BigDecimal timeSpent = getTaskSpentTime(projectTask);
+
+    BigDecimal realCost = timeSpent.multiply(unitCost).setScale(RESULT_SCALE, RoundingMode.HALF_UP);
+
+    // add subtask real cost
+    for (ProjectTask task : projectTask.getProjectTaskList()) {
+      realCost = realCost.add(computeRealCosts(task, project));
+    }
+    projectTask.setRealCosts(realCost);
+    return realCost;
+  }
+
   /**
    * compute unit cost depending on Project spentTimeCostComputationMethod
    *
@@ -262,7 +321,7 @@ public class ProjectTaskReportingValuesComputingServiceImpl
         break;
       case ProjectRepository.COMPUTATION_METHOD_PRODUCT:
         if (product != null) {
-          unitCost = product.getCostPrice();
+          unitCost = getProductConvertedPrice(product, timeUnit);
         }
         break;
       case ProjectRepository.COMPUTATION_METHOD_EMPLOYEE:
