@@ -32,7 +32,9 @@ import com.axelor.apps.account.db.repo.MoveRepository;
 import com.axelor.apps.account.service.FiscalPositionAccountService;
 import com.axelor.apps.account.service.ReconcileService;
 import com.axelor.apps.account.service.config.AccountConfigService;
+import com.axelor.apps.account.service.invoice.InvoiceTermReplaceService;
 import com.axelor.apps.account.service.move.MoveCreateService;
+import com.axelor.apps.account.service.move.MoveLineInvoiceTermService;
 import com.axelor.apps.account.service.move.MoveToolService;
 import com.axelor.apps.account.service.move.MoveValidateService;
 import com.axelor.apps.account.service.moveline.MoveLineCreateService;
@@ -48,6 +50,7 @@ import java.lang.invoke.MethodHandles;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import javax.persistence.Query;
 import org.slf4j.Logger;
@@ -65,9 +68,10 @@ public class DoubtfulCustomerService {
   protected MoveLineRepository moveLineRepo;
   protected ReconcileService reconcileService;
   protected AccountConfigService accountConfigService;
-  protected DoubtfulCustomerInvoiceTermService doubtfulCustomerInvoiceTermService;
   protected AppBaseService appBaseService;
   protected InvoiceTermRepository invoiceTermRepo;
+  protected InvoiceTermReplaceService invoiceTermReplaceService;
+  protected MoveLineInvoiceTermService moveLineInvoiceTermService;
 
   @Inject
   public DoubtfulCustomerService(
@@ -79,9 +83,10 @@ public class DoubtfulCustomerService {
       MoveLineRepository moveLineRepo,
       ReconcileService reconcileService,
       AccountConfigService accountConfigService,
-      DoubtfulCustomerInvoiceTermService doubtfulCustomerInvoiceTermService,
       AppBaseService appBaseService,
-      InvoiceTermRepository invoiceTermRepo) {
+      InvoiceTermRepository invoiceTermRepo,
+      InvoiceTermReplaceService invoiceTermReplaceService,
+      MoveLineInvoiceTermService moveLineInvoiceTermService) {
 
     this.moveCreateService = moveCreateService;
     this.moveValidateService = moveValidateService;
@@ -91,9 +96,10 @@ public class DoubtfulCustomerService {
     this.moveLineRepo = moveLineRepo;
     this.reconcileService = reconcileService;
     this.accountConfigService = accountConfigService;
-    this.doubtfulCustomerInvoiceTermService = doubtfulCustomerInvoiceTermService;
     this.appBaseService = appBaseService;
     this.invoiceTermRepo = invoiceTermRepo;
+    this.invoiceTermReplaceService = invoiceTermReplaceService;
+    this.moveLineInvoiceTermService = moveLineInvoiceTermService;
   }
 
   /**
@@ -190,7 +196,7 @@ public class DoubtfulCustomerService {
     List<MoveLine> creditMoveLines = new ArrayList<MoveLine>();
     if (invoicePartnerMoveLines != null) {
       for (MoveLine moveLine : invoicePartnerMoveLines) {
-        amountRemaining = amountRemaining.add(moveLine.getAmountRemaining());
+        amountRemaining = amountRemaining.add(moveLine.getAmountRemaining().abs());
         // Credit move line on partner account
         MoveLine creditMoveLine =
             moveLineCreateService.createMoveLine(
@@ -203,6 +209,7 @@ public class DoubtfulCustomerService {
                 1,
                 move.getOrigin(),
                 debtPassReason);
+        moveLineInvoiceTermService.generateDefaultInvoiceTerm(newMove, creditMoveLine, false);
 
         origin = creditMoveLine.getOrigin();
         creditMoveLines.add(creditMoveLine);
@@ -221,16 +228,16 @@ public class DoubtfulCustomerService {
             2,
             origin,
             debtPassReason);
+    moveLineInvoiceTermService.generateDefaultInvoiceTerm(newMove, debitMoveLine, false);
     debitMoveLine.setPassageReason(debtPassReason);
 
-    doubtfulCustomerInvoiceTermService.createOrUpdateInvoiceTerms(
-        invoice,
-        newMove,
-        invoicePartnerMoveLines,
-        creditMoveLines,
-        debitMoveLine,
-        todayDate,
-        amountRemaining);
+    newMove.addMoveLineListItem(debitMoveLine);
+    creditMoveLines.forEach(newMove::addMoveLineListItem);
+
+    for (MoveLine moveLine : invoicePartnerMoveLines) {
+      invoiceTermReplaceService.replaceInvoiceTerms(
+          invoice, newMove, Collections.singletonList(moveLine), moveLine.getAccount());
+    }
 
     this.invoiceProcess(newMove, doubtfulCustomerAccount, debtPassReason);
   }
@@ -278,7 +285,7 @@ public class DoubtfulCustomerService {
             debtPassReason,
             moveLine.getMove().getCompanyBankDetails());
 
-    BigDecimal amountRemaining = moveLine.getAmountRemaining();
+    BigDecimal amountRemaining = moveLine.getAmountRemaining().abs();
 
     // Ecriture au crédit sur le 411
     MoveLine creditMoveLine =
