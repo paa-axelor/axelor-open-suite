@@ -18,6 +18,7 @@
  */
 package com.axelor.apps.account.service.move;
 
+import com.axelor.apps.account.db.Account;
 import com.axelor.apps.account.db.AnalyticMoveLine;
 import com.axelor.apps.account.db.Move;
 import com.axelor.apps.account.db.MoveLine;
@@ -212,10 +213,15 @@ public class MoveTemplateServiceImpl implements MoveTemplateService {
                 companyBankDetails);
 
         int counter = 1;
+        boolean hasTaxLine =
+            moveTemplate.getMoveTemplateLineList().stream()
+                .map(MoveTemplateLine::getAccount)
+                .anyMatch(this::isTaxAccount);
 
         for (MoveTemplateLine moveTemplateLine : moveTemplate.getMoveTemplateLineList()) {
-          if (!AccountTypeRepository.TYPE_TAX.equals(
-              moveTemplateLine.getAccount().getAccountType().getTechnicalTypeSelect())) {
+          String technicalTypeSelect =
+              moveTemplateLine.getAccount().getAccountType().getTechnicalTypeSelect();
+          if (!AccountTypeRepository.TYPE_TAX.equals(technicalTypeSelect)) {
             partner = null;
             if (moveTemplateLine.getDebitCreditSelect().equals(MoveTemplateLineRepository.DEBIT)) {
               isDebit = true;
@@ -231,10 +237,28 @@ public class MoveTemplateServiceImpl implements MoveTemplateService {
               }
             }
 
-            BigDecimal amount =
-                moveBalance
-                    .multiply(moveTemplateLine.getPercentage())
-                    .divide(hundred, RoundingMode.HALF_UP);
+            BigDecimal amount = moveBalance;
+
+            if (hasTaxLine
+                && moveLineTaxService.isGenerateMoveLineForAutoTax(technicalTypeSelect)) {
+              BigDecimal taxRatio =
+                  moveTemplate.getMoveTemplateLineList().stream()
+                      .filter(line -> isTaxAccount(line.getAccount()))
+                      .map(MoveTemplateLine::getPercentage)
+                      .findFirst()
+                      .orElse(BigDecimal.ZERO)
+                      .divide(hundred, RoundingMode.HALF_UP);
+              amount = moveBalance.divide(BigDecimal.ONE.add(taxRatio), RoundingMode.HALF_UP);
+            } else if (moveLineTaxService.isGenerateMoveLineForAutoTax(technicalTypeSelect)) {
+              BigDecimal taxLinePercentage =
+                  moveTemplateLine.getTax() != null
+                      ? moveTemplateLine.getTax().getActiveTaxLine().getValue()
+                      : BigDecimal.ONE;
+              amount =
+                  moveBalance
+                      .multiply(moveTemplateLine.getPercentage().subtract(taxLinePercentage))
+                      .divide(hundred, RoundingMode.HALF_UP);
+            }
 
             MoveLine moveLine =
                 moveLineCreateService.createMoveLine(
@@ -541,5 +565,9 @@ public class MoveTemplateServiceImpl implements MoveTemplateService {
       partner = moveTemplate.getMoveTemplateLineList().get(0).getPartner();
     }
     return partner;
+  }
+
+  protected boolean isTaxAccount(Account account) {
+    return AccountTypeRepository.TYPE_TAX.equals(account.getAccountType().getTechnicalTypeSelect());
   }
 }

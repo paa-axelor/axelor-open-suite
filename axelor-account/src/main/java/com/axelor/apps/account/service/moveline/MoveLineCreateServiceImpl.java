@@ -865,7 +865,7 @@ public class MoveLineCreateServiceImpl implements MoveLineCreateService {
         taxLineBeforeReverse != null ? taxLineBeforeReverse.getValue() : taxLine.getValue();
 
     if (percentMoveTemplate) {
-      debit = sumMoveLinesByAccountType(move.getMoveLineList(), AccountTypeRepository.TYPE_PAYABLE);
+      debit = sumMoveLinesByAccountType(move.getMoveLineList(), null);
       credit =
           sumMoveLinesByAccountType(move.getMoveLineList(), AccountTypeRepository.TYPE_RECEIVABLE);
     }
@@ -957,7 +957,12 @@ public class MoveLineCreateServiceImpl implements MoveLineCreateService {
 
   protected BigDecimal sumMoveLinesByAccountType(List<MoveLine> moveLines, String accountType) {
     return moveLines.stream()
-        .filter(ml -> ml.getAccount().getAccountType().getTechnicalTypeSelect().equals(accountType))
+        .filter(
+            ml ->
+                accountType == null
+                    ? moveLineTaxService.isGenerateMoveLineForAutoTax(
+                        ml.getAccount().getAccountType().getTechnicalTypeSelect())
+                    : ml.getAccount().getAccountType().getTechnicalTypeSelect().equals(accountType))
         .map(it -> it.getDebit().add(it.getCredit()))
         .reduce(BigDecimal::add)
         .orElse(BigDecimal.ZERO);
