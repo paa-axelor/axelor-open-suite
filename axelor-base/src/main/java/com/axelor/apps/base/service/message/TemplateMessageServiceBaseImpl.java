@@ -24,6 +24,7 @@ import com.axelor.apps.base.service.birt.template.BirtTemplateService;
 import com.axelor.apps.base.service.exception.TraceBackService;
 import com.axelor.inject.Beans;
 import com.axelor.message.db.Template;
+import com.axelor.message.service.MailMessageActionService;
 import com.axelor.message.service.MessageService;
 import com.axelor.message.service.TemplateContextService;
 import com.axelor.message.service.TemplateMessageServiceImpl;
@@ -53,8 +54,9 @@ public class TemplateMessageServiceBaseImpl extends TemplateMessageServiceImpl {
   public TemplateMessageServiceBaseImpl(
       MessageService messageService,
       TemplateContextService templateContextService,
+      MailMessageActionService mailMessageActionService,
       BirtTemplateService birtTemplateService) {
-    super(messageService, templateContextService);
+    super(messageService, templateContextService, mailMessageActionService);
     this.birtTemplateService = birtTemplateService;
   }
 
